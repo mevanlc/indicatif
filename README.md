@@ -27,8 +27,9 @@ color support, but there are bigger plans for the future of this!
 [examples/progress-bars.rs](examples/progress-bars.rs) is a selectable visual tour of
 progress-bar layouts, styles, and lifecycle behavior. Run
 `cargo run --example progress-bars -- --list` to see the available scenes.
-Without `--scene`, it runs the complete tour; use `--scene <name>` to run a
-specific scene.
+Without `--scene`, it runs the complete tour; use `-s`/`--scene <name>` to run
+a specific scene. Use `-r`/`--rate <R>` to change the scene speed; it defaults
+to `1.0`, and values above `1.0` run faster.
 
 ## Integrations
 

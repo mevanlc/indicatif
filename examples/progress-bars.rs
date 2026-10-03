@@ -29,8 +29,18 @@ struct Args {
     list: bool,
 
     /// Run only this scene; pass more than once to run several scenes
-    #[arg(long = "scene", value_enum, value_name = "SCENE")]
+    #[arg(short, long = "scene", value_enum, value_name = "SCENE")]
     scenes: Vec<Scene>,
+
+    /// Scene play speed factor; values above 1.0 run faster
+    #[arg(
+        short,
+        long,
+        default_value = "1.0",
+        value_name = "R",
+        value_parser = parse_rate
+    )]
+    rate: f64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -96,6 +106,7 @@ impl Scene {
 
 fn main() {
     let args = Args::parse();
+    let playback = Playback::new(args.rate);
 
     if args.list {
         list_scenes();
@@ -109,7 +120,52 @@ fn main() {
     };
 
     for scene in scenes {
-        run_scene(*scene);
+        run_scene(*scene, playback);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Playback {
+    rate: f64,
+}
+
+impl Playback {
+    const fn new(rate: f64) -> Self {
+        Self { rate }
+    }
+
+    fn pause(self) {
+        self.wait(STEP_DELAY);
+    }
+
+    fn settle(self) {
+        self.wait(SCENE_PAUSE);
+    }
+
+    fn tick_interval(self) -> Duration {
+        self.scaled_duration(TICK_INTERVAL)
+            .max(Duration::from_millis(1))
+    }
+
+    fn wait(self, duration: Duration) {
+        thread::sleep(self.scaled_duration(duration));
+    }
+
+    fn scaled_duration(self, duration: Duration) -> Duration {
+        let nanoseconds = duration.as_nanos() as f64 / self.rate;
+        Duration::from_nanos(nanoseconds.clamp(1.0, u64::MAX as f64) as u64)
+    }
+}
+
+fn parse_rate(value: &str) -> Result<f64, String> {
+    let rate = value
+        .parse::<f64>()
+        .map_err(|_| format!("`{value}` is not a number"))?;
+
+    if rate.is_finite() && rate > 0.0 {
+        Ok(rate)
+    } else {
+        Err("rate must be a finite number greater than zero".to_owned())
     }
 }
 
@@ -120,20 +176,21 @@ fn list_scenes() {
     }
     println!();
     println!("Run all scenes: cargo run --example progress-bars");
-    println!("Run one scene:  cargo run --example progress-bars -- --scene multiple");
+    println!("Run one scene:  cargo run --example progress-bars -- -s multiple");
+    println!("Run faster:     cargo run --example progress-bars -- -r 2");
 }
 
-fn run_scene(scene: Scene) {
+fn run_scene(scene: Scene, playback: Playback) {
     heading(scene.title());
     match scene {
-        Scene::Single => single_scene(),
-        Scene::Indeterminate => indeterminate_scene(),
-        Scene::Transition => transition_scene(),
-        Scene::Multiple => multiple_scene(),
-        Scene::Lifecycle => lifecycle_scene(),
-        Scene::Inline => inline_scene(),
-        Scene::Color => color_scene(),
-        Scene::Templates => templates_scene(),
+        Scene::Single => single_scene(playback),
+        Scene::Indeterminate => indeterminate_scene(playback),
+        Scene::Transition => transition_scene(playback),
+        Scene::Multiple => multiple_scene(playback),
+        Scene::Lifecycle => lifecycle_scene(playback),
+        Scene::Inline => inline_scene(playback),
+        Scene::Color => color_scene(playback),
+        Scene::Templates => templates_scene(playback),
     }
 }
 
@@ -146,15 +203,7 @@ fn style(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template).expect("showcase templates are valid")
 }
 
-fn pause() {
-    thread::sleep(STEP_DELAY);
-}
-
-fn settle() {
-    thread::sleep(SCENE_PAUSE);
-}
-
-fn single_scene() {
+fn single_scene(playback: Playback) {
     let progress = ProgressBar::new(STEPS);
     progress.set_style(
         style("{prefix:.bold} [{bar:28.cyan/blue}] {pos:>2}/{len:2} {msg}").progress_chars("=>-"),
@@ -164,15 +213,15 @@ fn single_scene() {
 
     for _ in 0..STEPS {
         progress.inc(1);
-        pause();
+        playback.pause();
     }
 
     progress.finish_with_message("complete");
-    settle();
+    playback.settle();
     progress.finish_and_clear();
 }
 
-fn indeterminate_scene() {
+fn indeterminate_scene(playback: Playback) {
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         style("{prefix:.bold} {spinner:.magenta} {wide_msg}")
@@ -180,17 +229,17 @@ fn indeterminate_scene() {
     );
     spinner.set_prefix("spinner");
     spinner.set_message("waiting for metadata");
-    spinner.enable_steady_tick(TICK_INTERVAL);
+    spinner.enable_steady_tick(playback.tick_interval());
 
-    thread::sleep(Duration::from_millis(800));
+    playback.wait(Duration::from_millis(800));
 
     spinner.finish_with_message("metadata discovered");
     spinner.disable_steady_tick();
-    settle();
+    playback.settle();
     spinner.finish_and_clear();
 }
 
-fn transition_scene() {
+fn transition_scene(playback: Playback) {
     let progress = ProgressBar::new_spinner();
     progress.set_style(
         style("{prefix:.bold} {spinner:.yellow} {wide_msg}")
@@ -198,9 +247,9 @@ fn transition_scene() {
     );
     progress.set_prefix("transition");
     progress.set_message("size is unknown");
-    progress.enable_steady_tick(TICK_INTERVAL);
+    progress.enable_steady_tick(playback.tick_interval());
 
-    thread::sleep(Duration::from_millis(500));
+    playback.wait(Duration::from_millis(500));
 
     progress.set_length(STEPS);
     progress.set_style(
@@ -210,7 +259,7 @@ fn transition_scene() {
 
     for _ in 0..STEPS / 2 {
         progress.inc(1);
-        pause();
+        playback.pause();
     }
 
     progress.unset_length();
@@ -219,7 +268,7 @@ fn transition_scene() {
             .tick_strings(&[".", "o", "O", "o", " "]),
     );
     progress.set_message("more work discovered");
-    thread::sleep(Duration::from_millis(450));
+    playback.wait(Duration::from_millis(450));
 
     progress.set_length(STEPS);
     progress.set_style(
@@ -229,16 +278,16 @@ fn transition_scene() {
 
     for _ in 0..STEPS / 2 {
         progress.inc(1);
-        pause();
+        playback.pause();
     }
 
     progress.finish_with_message("complete");
     progress.disable_steady_tick();
-    settle();
+    playback.settle();
     progress.finish_and_clear();
 }
 
-fn multiple_scene() {
+fn multiple_scene(playback: Playback) {
     let multi = MultiProgress::new();
     let total = multi.add(ProgressBar::new(STEPS));
     let compile = multi.insert_before(&total, ProgressBar::new(STEPS));
@@ -268,17 +317,17 @@ fn multiple_scene() {
                 .println("A MultiProgress keeps output above every active bar.")
                 .expect("writing through MultiProgress succeeds");
         }
-        pause();
+        playback.pause();
     }
 
     fetch.finish_with_message("dependencies ready");
     compile.finish_with_message("sources built");
     total.finish_with_message("all work complete");
-    settle();
+    playback.settle();
     multi.clear().expect("clearing MultiProgress succeeds");
 }
 
-fn lifecycle_scene() {
+fn lifecycle_scene(playback: Playback) {
     let multi = MultiProgress::new();
     let retained = multi.add(ProgressBar::new(STEPS));
     let transient = multi.insert_before(&retained, ProgressBar::new(STEPS));
@@ -295,7 +344,7 @@ fn lifecycle_scene() {
     for _ in 0..STEPS {
         retained.inc(1);
         transient.inc(1);
-        pause();
+        playback.pause();
     }
 
     retained.finish_with_message("still visible after finishing");
@@ -303,11 +352,11 @@ fn lifecycle_scene() {
     multi
         .println("The retained result remains while the transient bar disappears.")
         .expect("writing through MultiProgress succeeds");
-    settle();
+    playback.settle();
     multi.clear().expect("clearing MultiProgress succeeds");
 }
 
-fn inline_scene() {
+fn inline_scene(playback: Playback) {
     let multi = MultiProgress::new();
     let first = multi.add(ProgressBar::new(STEPS));
     let second = multi.add(ProgressBar::new(STEPS));
@@ -332,16 +381,16 @@ fn inline_scene() {
         if step == STEPS / 2 {
             first.println("ProgressBar::println is also safe for a bar in a MultiProgress.");
         }
-        pause();
+        playback.pause();
     }
 
     first.finish_with_message("first complete");
     second.finish_with_message("second complete");
-    settle();
+    playback.settle();
     multi.clear().expect("clearing MultiProgress succeeds");
 }
 
-fn color_scene() {
+fn color_scene(playback: Playback) {
     let multi = MultiProgress::new();
     let warm = multi.add(ProgressBar::new(STEPS));
     let cool = multi.add(ProgressBar::new(STEPS));
@@ -362,16 +411,16 @@ fn color_scene() {
     for _ in 0..STEPS {
         warm.inc(1);
         cool.inc(1);
-        pause();
+        playback.pause();
     }
 
     warm.finish_with_message("warm palette complete");
     cool.finish_with_message("cool palette complete");
-    settle();
+    playback.settle();
     multi.clear().expect("clearing MultiProgress succeeds");
 }
 
-fn templates_scene() {
+fn templates_scene(playback: Playback) {
     let multi = MultiProgress::new();
     let prefix_before = multi.add(ProgressBar::new(STEPS));
     let message_before = multi.add(ProgressBar::new(STEPS));
@@ -398,7 +447,7 @@ fn templates_scene() {
     wide_bar.set_prefix("wide bar");
     wide_message.set_prefix("wide message");
     wide_message.set_message("takes the remaining terminal width");
-    wide_message.enable_steady_tick(TICK_INTERVAL);
+    wide_message.enable_steady_tick(playback.tick_interval());
 
     for step in 0..STEPS {
         prefix_before.inc(1);
@@ -408,7 +457,7 @@ fn templates_scene() {
         if step == STEPS / 2 {
             wide_message.set_message("remains after the spinner on the same line");
         }
-        pause();
+        playback.pause();
     }
 
     prefix_before.finish_with_message("complete");
@@ -417,6 +466,6 @@ fn templates_scene() {
     wide_bar.finish();
     wide_message.finish_with_message("wide message complete");
     wide_message.disable_steady_tick();
-    settle();
+    playback.settle();
     multi.clear().expect("clearing MultiProgress succeeds");
 }
