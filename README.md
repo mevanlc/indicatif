@@ -24,6 +24,12 @@ color support, but there are bigger plans for the future of this!
 [examples/single.rs](examples/single.rs)
 <img src="https://github.com/console-rs/indicatif/blob/main/screenshots/single.gif?raw=true">
 
+[examples/progress-bars.rs](examples/progress-bars.rs) is a selectable visual tour of
+progress-bar layouts, styles, and lifecycle behavior. Run
+`cargo run --example progress-bars -- --list` to see the available scenes.
+Without `--scene`, it runs the complete tour; use `--scene <name>` to run a
+specific scene.
+
 ## Integrations
 
 You can use [indicatif-log-bridge](https://crates.io/crates/indicatif-log-bridge) to integrate with the
